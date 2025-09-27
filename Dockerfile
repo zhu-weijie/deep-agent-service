@@ -2,34 +2,36 @@
 # Use the official Python slim image as a base.
 FROM python:3.11-slim AS base
 
-# Set environment variables to prevent writing .pyc files and to ensure output is unbuffered.
+# Set environment variables.
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+ENV POETRY_NO_INTERACTION=1
 
 # Install poetry.
 RUN pip install poetry
 
 
 # ---- Builder Stage ----
-# This stage installs the Python dependencies.
+# This stage installs the Python dependencies into the system's site-packages.
 FROM base AS builder
 
 # Set the working directory.
 WORKDIR /app
 
+# Configure Poetry to NOT create a virtual environment.
+# This ensures packages are installed in a globally accessible location.
+RUN poetry config virtualenvs.create false
+
 # Copy only the files needed for dependency installation.
-# This leverages Docker's layer caching.
 COPY poetry.lock pyproject.toml ./
 
-# Install dependencies using Poetry, without creating a virtual environment inside the container.
-# --without dev installs only production dependencies.
-# --no-root skips installing the project itself, which is what we want here.
-RUN poetry install --without dev --no-interaction --no-ansi --no-root
+# Install only production dependencies into the system site-packages.
+RUN poetry install --without dev --no-root --no-ansi
 
 
 # ---- Final Application Stage ----
 # This is the final, lean image for production.
-FROM base AS final
+FROM python:3.11-slim AS final
 
 # Create a non-root user and group for security.
 RUN addgroup --system app && adduser --system --group app
@@ -38,7 +40,8 @@ RUN addgroup --system app && adduser --system --group app
 WORKDIR /app
 
 # Copy the installed dependencies from the builder stage.
-COPY --from=builder /root/.local /root/.local
+# The executables are in /usr/local/bin and packages are in /usr/local/lib/...
+COPY --from=builder /usr/local /usr/local
 
 # Copy the application source code.
 COPY ./src/app ./app
@@ -52,8 +55,6 @@ USER app
 # Expose the port the app will run on.
 EXPOSE 8000
 
-# Set the path to include the installed Python packages.
-ENV PATH="/root/.local/bin:$PATH"
-
 # Command to run the application using uvicorn.
+# /usr/local/bin is already on the default PATH.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
