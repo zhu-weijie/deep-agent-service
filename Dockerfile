@@ -22,8 +22,9 @@ WORKDIR /app
 COPY poetry.lock pyproject.toml ./
 
 # Install dependencies using Poetry, without creating a virtual environment inside the container.
-# --no-dev installs only production dependencies.
-RUN poetry install --no-dev --no-interaction --no-ansi
+# --without dev installs only production dependencies.
+# --no-root skips installing the project itself, which is what we want here.
+RUN poetry install --without dev --no-interaction --no-ansi --no-root
 
 
 # ---- Final Application Stage ----

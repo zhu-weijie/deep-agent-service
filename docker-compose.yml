@@ -1,0 +1,9 @@
+services:
+  deep-agent-service:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/app:/app/app
+    env_file:
+      - .env
