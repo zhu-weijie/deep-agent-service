@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # API Keys
     TAVILY_API_KEY: str
     ANTHROPIC_API_KEY: str
+    OPENAI_API_KEY: str
     LANGSMITH_API_KEY: str | None = None
 
 
