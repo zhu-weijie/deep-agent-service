@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class APIBaseMessage(BaseModel):
     """A message in the chat history."""
 
-    role: Literal["user", "assistant", "tool", "human"]
+    role: Literal["user", "assistant", "tool", "human", "system"]
     content: Any
 
 
