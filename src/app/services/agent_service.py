@@ -25,10 +25,7 @@ def create_deep_agent():
     model = init_chat_model(model="anthropic:claude-sonnet-4-20250514", temperature=0.0)
 
     # --- Define Tools ---
-    # Tools for the research sub-agent
     sub_agent_tools = [tavily_search, think_tool]
-
-    # Tools available to the main agent
     built_in_tools = [ls, read_file, write_file, write_todos, read_todos, think_tool]
 
     # --- Define Research Sub-Agent ---
@@ -43,23 +40,17 @@ def create_deep_agent():
     task_tool = _create_task_tool(
         sub_agent_tools, [research_sub_agent], model, DeepAgentState
     )
-
-    # Combine all tools available to the main agent
     delegation_tools = [task_tool]
     all_tools = sub_agent_tools + built_in_tools + delegation_tools
 
     # --- Construct the Main Agent Prompt ---
-    # Define hardcoded limits
     max_concurrent_research_units = 3
     max_researcher_iterations = 3
-
     subagent_instructions = SUBAGENT_USAGE_INSTRUCTIONS.format(
         max_concurrent_research_units=max_concurrent_research_units,
         max_researcher_iterations=max_researcher_iterations,
         date=datetime.now().strftime("%a %b %-d, %Y"),
     )
-
-    # Combine all prompt sections
     instructions = (
         "# TODO MANAGEMENT\n"
         + TODO_USAGE_INSTRUCTIONS
@@ -76,9 +67,10 @@ def create_deep_agent():
     )
 
     # --- Create the Agent ---
+    # The recursion_limit is set via .with_config() on the returned agent graph.
     agent = create_react_agent(
         model, all_tools, prompt=instructions, state_schema=DeepAgentState
-    )
+    ).with_config({"recursion_limit": 100})
 
     print("Deep Agent graph created successfully.")
     return agent
@@ -89,7 +81,4 @@ agent_executor = create_deep_agent()
 
 # --- Validation Block ---
 if __name__ == "__main__":
-    # This block will only run when the script is executed directly
-    # It allows us to validate that the agent can be created without errors.
     print("Agent service module loaded and agent instance created.")
-    # In a real application, you might add more robust tests here.

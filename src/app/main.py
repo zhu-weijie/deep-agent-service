@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from .config import settings
+from .api.routes import router as api_router
 
 # Instantiate the FastAPI application
 app = FastAPI(
@@ -7,6 +8,9 @@ app = FastAPI(
     description="A FastAPI service for the Deep Agent research agent.",
     version="0.1.0",
 )
+
+# Include the API router
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])
