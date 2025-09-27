@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from .config import settings
 
 # Instantiate the FastAPI application
 app = FastAPI(
@@ -11,6 +12,7 @@ app = FastAPI(
 @app.get("/health", tags=["Health"])
 async def health_check():
     """
-    Simple health check endpoint to confirm the service is running.
+    Simple health check endpoint to confirm the service is running
+    and loading configuration correctly.
     """
-    return {"status": "ok"}
+    return {"status": "ok", "environment": settings.ENVIRONMENT}
