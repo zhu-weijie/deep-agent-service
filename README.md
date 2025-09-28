@@ -114,3 +114,301 @@ curl -N -X POST http://localhost:8000/api/v1/stream \
 }'
 ```
 The `-N` flag disables buffering in curl, allowing you to see the events as they arrive.
+
+## Diagrams
+
+### Class Diagram
+
+```mermaid
+classDiagram
+    direction TD
+
+    %% 1. Define all classes first
+    class FastAPIApp {
+        <<Application>>
+        +app: FastAPI
+        +include_router(api_router)
+    }
+    class APIRouter {
+        <<Router>>
+        +POST /api/v1/invoke(InvokeRequest)
+        +POST /api/v1/stream(InvokeRequest)
+    }
+    class InvokeRequest {
+        +messages: List[APIBaseMessage]
+        +files: Dict
+        +todos: List
+    }
+    class InvokeResponse {
+        +messages: List[APIBaseMessage]
+        +files: Dict
+        +todos: List
+    }
+    class APIBaseMessage {
+        +role: Literal
+        +content: Any
+    }
+    class AgentService {
+        <<Singleton>>
+        +agent_executor: CompiledGraph
+        +create_deep_agent()
+    }
+    class DeepAgentState {
+        <<Model>>
+        +messages: list
+        +files: dict
+        +todos: list
+    }
+    class Prompts {
+        <<Constants>>
+        +RESEARCHER_INSTRUCTIONS
+        +SUBAGENT_USAGE_INSTRUCTIONS
+        +...
+    }
+    class FileTools {
+        +ls()
+        +read_file()
+        +write_file()
+    }
+    class TodoTools {
+        +read_todos()
+        +write_todos()
+    }
+    class ResearchTools {
+        +tavily_search()
+        +think_tool()
+    }
+    class TaskTool {
+        +_create_task_tool()
+    }
+    class Settings {
+        <<Pydantic>>
+        +TAVILY_API_KEY
+        +ANTHROPIC_API_KEY
+        +OPENAI_API_KEY
+    }
+    class LoggingConfig {
+         +setup_logging()
+    }
+
+    %% 2. Define visual grouping with subgraphs
+    subgraph `API Layer`
+        APIRouter
+        FastAPIApp
+        subgraph `API Models`
+            APIBaseMessage
+            InvokeRequest
+            InvokeResponse
+        end
+    end
+
+    subgraph `Service Layer`
+        AgentService
+    end
+
+    subgraph `Configuration`
+        Settings
+        LoggingConfig
+    end
+    
+    subgraph `Agent Tools`
+        FileTools
+        TodoTools
+        ResearchTools
+        TaskTool
+    end
+
+    subgraph `Core Logic & Models`
+        DeepAgentState
+        Prompts
+    end
+    
+    %% 3. Define relationships between classes
+    FastAPIApp *-- APIRouter : includes
+    FastAPIApp ..> LoggingConfig : configures
+    
+    APIRouter ..> AgentService : uses
+    APIRouter ..> InvokeRequest : validates
+    APIRouter ..> InvokeResponse : serializes
+    InvokeRequest "1" *-- "many" APIBaseMessage
+    InvokeResponse "1" *-- "many" APIBaseMessage
+
+    AgentService ..> Settings : uses for keys
+    AgentService ..> Prompts : uses
+    AgentService ..> DeepAgentState : uses as schema
+    AgentService ..> FileTools : assembles
+    AgentService ..> TodoTools : assembles
+    AgentService ..> ResearchTools : assembles
+    AgentService ..> TaskTool : assembles
+
+    FileTools ..> DeepAgentState : interacts with
+    TodoTools ..> DeepAgentState : interacts with
+    ResearchTools ..> DeepAgentState : interacts with
+    TaskTool ..> DeepAgentState : interacts with
+    
+    FileTools ..> Prompts : uses
+    TodoTools ..> Prompts : uses
+    ResearchTools ..> Prompts : uses
+    TaskTool ..> Prompts : uses
+
+    note for TaskTool "Creates sub-agent instances"
+```
+
+### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+
+    participant C as Client
+    participant R as APIRouter
+    participant S as AgentService
+    participant G as LangGraph Executor
+    participant L as LLM
+    participant T as Tools
+
+    C->>R: POST /api/v1/stream with user prompt
+    activate R
+
+    R->>S: Calls stream_generator(request)
+    activate S
+
+    S->>G: Calls agent_executor.astream_events()
+    activate G
+
+    loop Agent Execution Cycle
+        G->>L: 1. Send current state (messages, tool descriptions)
+        activate L
+        L-->>G: 2. Respond with decision (e.g., Tool Call)
+        deactivate L
+        
+        par Stream LLM Decision
+            G-->>S: Yields event [on_llm_end]
+            S-->>R: Yields formatted SSE
+            R-->>C: Streams event to Client
+        end
+
+        G->>T: 3. Execute the requested tool (e.g., write_todos, task)
+        activate T
+        
+        par Stream Tool Execution Start
+            G-->>S: Yields event [on_tool_start]
+            S-->>R: Yields formatted SSE
+            R-->>C: Streams event to Client
+        end
+        
+        T-->>G: 4. Return tool observation (ToolMessage)
+        deactivate T
+
+        par Stream Tool Execution End
+            G-->>S: Yields event [on_tool_end]
+            S-->>R: Yields formatted SSE
+            R-->>C: Streams event to Client
+        end
+    end
+    
+    note right of G: The loop repeats (Think -> Act -> Observe) until the LLM decides the task is complete.
+
+    G->>L: Send final state with all observations
+    activate L
+    L-->>G: Respond with final answer (AIMessage)
+    deactivate L
+    
+    par Stream Final Answer
+        G-->>S: Yields final events [on_llm_stream, on_llm_end]
+        S-->>R: Yields final SSE chunks
+        R-->>C: Streams final answer to Client
+    end
+    
+    deactivate G
+    deactivate S
+    deactivate R
+```
+
+### State Diagram
+
+```mermaid
+stateDiagram-v2
+    direction TB
+
+    [*] --> Pending: Agent creates task\n(write_todos)
+
+    Pending --> InProgress: Agent selects task to work on\n(write_todos)
+    InProgress --> InProgress: Agent performs actions\n(e.g., calls tools, delegates)
+    InProgress --> Completed: Agent finishes all work for the task\n(write_todos)
+
+    Completed --> [*]: Task is finished
+```
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    AGENT_SESSION {
+        string thread_id PK "Unique identifier for a single conversation"
+    }
+
+    AGENT_STATE {
+        string thread_id FK "Links state to a specific session"
+        list messages "Collection of all messages in the conversation"
+        dict files "The virtual file system"
+        list todos "The agent's task list"
+    }
+
+    MESSAGE {
+        string role "The role of the message sender (user, assistant, etc.)"
+        any content "The content of the message, which can be text or tool calls"
+    }
+
+    FILE {
+        string file_path PK "The unique path acting as a key"
+        string content "The text content of the virtual file"
+    }
+
+    TODO {
+        string content "The description of the task"
+        string status "The current status (pending, in_progress, completed)"
+    }
+
+    %% --- Relationships ---
+    AGENT_SESSION ||--|{ AGENT_STATE : "has"
+    AGENT_STATE ||--|{ MESSAGE : "contains"
+    AGENT_STATE ||--o{ FILE : "contains"
+    AGENT_STATE ||--o{ TODO : "contains"
+```
+
+### C4 Component Diagram
+
+```mermaid
+C4Component
+    title Component Diagram for Deep Agent Service
+
+    %% --- Define People and External Systems First ---
+    Person(user, "User", "A person or external system making API requests.")
+    System_Ext(anthropic, "Anthropic API", "External LLM service for agent reasoning.")
+    System_Ext(openai, "OpenAI API", "External LLM service used for summarization.")
+    System_Ext(tavily, "Tavily API", "External search engine service.")
+    System_Ext(langsmith, "LangSmith API", "External service for tracing and observability.")
+
+    %% --- Group Components into the Container using a Boundary ---
+    Container_Boundary(c1, "Deep Agent Service (Container)") {
+        Component(api_router, "FastAPI Router", "FastAPI", "Handles HTTP requests, validation, and serialization. Exposes the /api/v1 endpoints.")
+        Component(agent_service, "Agent Service", "Python", "Assembles and configures the LangGraph agent executor on startup.")
+        Component(langgraph_executor, "LangGraph Executor", "LangGraph", "Executes the agent's core reasoning loop (Think-Act-Observe).")
+        Component(agent_tools, "Agent Tools", "Python Modules", "Collection of capabilities for the agent (file I/O, search, sub-agent delegation).")
+        Component(core_models, "Core Models & Config", "Pydantic & Python", "Defines the agent's state, API models, prompts, and application configuration.")
+    }
+
+    %% --- Define Relationships ---
+    Rel(user, api_router, "Makes API requests to", "HTTPS/JSON")
+    Rel(api_router, agent_service, "Uses", "Python API")
+    Rel(agent_service, langgraph_executor, "Creates and configures")
+    Rel(agent_service, agent_tools, "Assembles")
+    Rel(agent_service, core_models, "Uses schemas & prompts from")
+    Rel(langgraph_executor, agent_tools, "Executes")
+    Rel(langgraph_executor, core_models, "Uses state schema from")
+    Rel(langgraph_executor, anthropic, "Sends prompts to", "HTTPS/JSON")
+    Rel(langgraph_executor, langsmith, "Sends traces to", "HTTPS")
+    Rel(agent_tools, openai, "Summarizes content with", "HTTPS/JSON")
+    Rel(agent_tools, tavily, "Performs searches with", "HTTPS/JSON")
+```
