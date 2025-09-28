@@ -1,6 +1,15 @@
+import logging
 from fastapi import FastAPI
+
 from .config import settings
 from .api.routes import router as api_router
+from .logging_config import setup_logging
+
+# Get the logger instance
+logger = logging.getLogger(__name__)
+
+# Call the setup function to configure logging
+setup_logging()
 
 # Instantiate the FastAPI application
 app = FastAPI(
@@ -19,4 +28,5 @@ async def health_check():
     Simple health check endpoint to confirm the service is running
     and loading configuration correctly.
     """
+    logger.info("Health check endpoint was called.")
     return {"status": "ok", "environment": settings.ENVIRONMENT}
